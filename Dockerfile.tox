@@ -1,0 +1,28 @@
+FROM cimg/python:3.9
+
+WORKDIR /home/circleci
+
+ADD --chown=circleci:circleci ./pyproject.toml ./tox.ini ./poetry.lock ./project/
+
+WORKDIR /home/circleci/project
+
+ARG GEMFURY_DOWNLOAD_KEY
+ARG CIRCLECI
+
+# Need to turn build args to env vars so that entrypoint script can see them.
+ENV GEMFURY_DOWNLOAD_KEY=${GEMFURY_DOWNLOAD_KEY}
+ENV CIRCLECI=${CIRCLECI}
+
+ENV DATABASE_HOST=postgres
+ENV DATABASE_PORT=5432
+ENV DATABASE_USER=dhos-observations
+ENV DATABASE_PASSWORD=TopSecretPassword
+ENV DATABASE_NAME=dhos-observations
+
+RUN sudo `which pip` install --upgrade pip tox poetry && \
+poetry config http-basic.sensynehealth ${GEMFURY_DOWNLOAD_KEY:?Missing build argument} ''
+RUN tox -e install-deps
+
+ADD --chown=circleci:circleci . .
+
+ENTRYPOINT /home/circleci/project/scripts/entrypoint.sh

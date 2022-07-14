@@ -1,0 +1,26 @@
+version: "3.7"
+
+networks:
+  dhos-observations-test:
+
+services:
+  dhos-observations-db:
+    container_name: "dhos-observations-db"
+    image: docker.io/postgres:12-alpine
+    networks:
+      - dhos-observations-test
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_USER: dhos-observations
+      POSTGRES_PASSWORD: dhos-observations
+      POSTGRES_DB: dhos-observations-db
+
+  start_dependencies:
+    container_name: "dhos-observations-dependencies"
+    image: dadarek/wait-for-dependencies
+    depends_on:
+      - dhos-observations-db
+    networks:
+      - dhos-observations-test
+    command: dhos-observations-db:5432

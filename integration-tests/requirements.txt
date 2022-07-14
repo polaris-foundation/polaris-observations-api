@@ -1,0 +1,15 @@
+assertpy==1.*
+behave
+black
+environs
+faker==4.*
+isort
+kombu==4.*
+mypy
+neo4j-driver==1.*
+python-dateutil==2.*
+python-jose==3.*
+reportportal-behave-client==1.*
+requests==2.*
+types-requests
+typing_extensions==3.*

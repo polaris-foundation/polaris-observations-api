@@ -1,0 +1,1742 @@
+openapi: 3.0.3
+info:
+  description: The DHOS Observations API is responsible for storing and retrieving
+    vital sign observations.
+  title: DHOS Observations API
+  version: 1.0.0
+paths:
+  /running:
+    get:
+      summary: Verify service is running
+      description: Verifies that the service is running. Used for monitoring in kubernetes.
+      tags:
+      - monitoring
+      responses:
+        '200':
+          description: If we respond, we are running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                    example: true
+      operationId: flask_batteries_included.blueprint_monitoring.app_running
+  /version:
+    get:
+      summary: Get version information
+      description: Get the version number, circleci build number, and git hash.
+      tags:
+      - monitoring
+      responses:
+        '200':
+          description: Version numbers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  circle:
+                    type: string
+                    example: '1234'
+                  hash:
+                    type: string
+                    example: 366c204
+      operationId: flask_batteries_included.blueprint_monitoring.app_version
+  /dhos/v2/observation_set:
+    post:
+      summary: Create a new observation set
+      description: Create a new observation set, which has been scored. This endpoint
+        may trigger the generation of an ORU HL7 message and a BCP PDF for SEND.
+      tags:
+      - observation
+      parameters:
+      - name: suppress_obs_publish
+        in: query
+        required: false
+        description: Set true to suppress PDF and ORU message generation (ignored
+          in production environments)
+        schema:
+          type: boolean
+          example: false
+      requestBody:
+        description: JSON body containing the observation set
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObservationSetRequest'
+              x-body-name: observation_set
+      responses:
+        '200':
+          description: New observation set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 400 Bad Request, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.create_observation_set
+      security:
+      - bearerAuth: []
+    get:
+      summary: Get observation sets by encounter
+      description: Get a list of observations sets associated with one or more encounters
+        (specified by UUID). An invalid encounter uuid will return an empty list.
+      tags:
+      - observation
+      parameters:
+      - name: encounter_id
+        in: query
+        required: true
+        description: UUIDs of the encounters (comma-separated or use the parameter
+          multiple times)
+        schema:
+          type: array
+          items:
+            type: string
+            example: e22f5175-6283-408d-9ba4-ea3b3a5354b8
+      - name: limit
+        in: query
+        required: false
+        description: The maximum number of observation sets to return
+        schema:
+          type: integer
+          example: 20
+      - name: compact
+        in: query
+        required: false
+        description: Whether to return the observation sets in compact form
+        schema:
+          type: boolean
+          default: true
+      responses:
+        '200':
+          description: A list of observation sets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.get_observation_sets_by_encounter_id
+      security:
+      - bearerAuth: []
+  /dhos/v2/observation_set/{observation_set_id}:
+    patch:
+      summary: Update an observation set
+      description: Update an existing observation set with new or changed details.
+      tags:
+      - observation
+      parameters:
+      - name: observation_set_id
+        in: path
+        required: true
+        description: UUID of the observation set to update
+        schema:
+          type: string
+          example: dfc94d4a-43c5-4595-9606-bf921d3f1964
+      requestBody:
+        description: Details of the observation set to update
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObservationSetUpdate'
+              x-body-name: observation_set_details
+      responses:
+        '200':
+          description: Updated observation set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 400 Bad Request, 404 Not Found, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.update_observation_set
+      security:
+      - bearerAuth: []
+    get:
+      summary: Get observation set
+      description: Get an observation set by UUID
+      tags:
+      - observation
+      parameters:
+      - name: observation_set_id
+        in: path
+        required: true
+        description: The observation set UUID
+        schema:
+          type: string
+          example: f8254bdb-5ba1-4bdf-8834-4ad4dbf9c193
+      - name: compact
+        in: query
+        required: false
+        description: Whether to return the observation sets in compact form
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: An observation set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 404 Not Found, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.get_observation_set_by_id
+      security:
+      - bearerAuth: []
+  /dhos/v2/observation_set/latest:
+    get:
+      summary: Get latest observation set for an encounter
+      description: Get the most recently recorded observations set associated with
+        a given encounter (specified by UUID). Multiple encounters may be given but
+        only a single observation set is returned.
+      tags:
+      - observation
+      parameters:
+      - name: encounter_id
+        in: query
+        required: true
+        description: UUIDs of the encounters (comma-separated or use the parameter
+          multiple times)
+        schema:
+          type: array
+          items:
+            type: string
+            example: e22f5175-6283-408d-9ba4-ea3b3a5354b8
+      - name: compact
+        in: query
+        required: false
+        description: Whether to return the observation sets in compact form
+        schema:
+          type: boolean
+          default: true
+      responses:
+        '200':
+          description: An observation set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 404 Not Found, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.get_latest_observation_set_by_encounter_id
+      security:
+      - bearerAuth: []
+    post:
+      summary: Retrieve latest observation sets for a list of encounters
+      description: Get the most recently recorded observations set associated with
+        each encounter. UUIDs are passed in the request body.
+      tags:
+      - observation
+      parameters:
+      - name: compact
+        in: query
+        required: false
+        description: Whether to return the observation sets in compact form
+        schema:
+          type: boolean
+          default: false
+      requestBody:
+        description: List of encounter UUIDs
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: encounter_ids
+              type: array
+              items:
+                type: string
+                example: 2c4f1d24-2952-4d4e-b1d1-3637e33cc161
+      responses:
+        '200':
+          description: Encounter UUIDs and their latest observation sets
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 400 Bad Request, 404 Not Found, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.get_latest_observation_sets_by_encounter_ids
+      security:
+      - bearerAuth: []
+  /dhos/v2/observation_set_search:
+    get:
+      summary: Search observation sets by location and date
+      description: Get a list of observation sets observation set, filtered by location
+        UUIDs and by date range. Only observation sets recorded against the provided
+        location, and during the provided date range, will be returned.
+      tags:
+      - observation
+      parameters:
+      - name: location
+        in: query
+        required: true
+        description: The UUID of the location to filter by
+        schema:
+          type: array
+          items:
+            type: string
+            example: e22f5175-6283-408d-9ba4-ea3b3a5354b8
+      - name: start_date
+        in: query
+        required: true
+        description: The ISO8601-formatted start date of the search
+        schema:
+          type: string
+          format: date-time
+          example: '1996-12-06T00:00:01.000Z'
+      - name: end_date
+        in: query
+        required: true
+        description: The ISO8601-formatted end date of the search
+        schema:
+          type: string
+          format: date-time
+          example: '2019-08-22T00:00:01.000Z'
+      - name: limit
+        in: query
+        required: false
+        description: The maximum number of observation sets to return
+        schema:
+          type: integer
+          example: 20
+      - name: compact
+        in: query
+        required: false
+        description: Whether to return the observation sets in compact form
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: A list of observation sets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 400 Bad Request, 404 Not Found, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.get_observation_sets_by_locations_and_date_range
+      security:
+      - bearerAuth: []
+    post:
+      summary: Search observation sets by locations and date
+      description: Get a list of observation sets observation set, filtered by location
+        UUIDs and by date range. Only observation sets recorded against the provided
+        location, and during the provided date range, will be returned.
+      tags:
+      - observation
+      parameters:
+      - name: start_date
+        in: query
+        required: true
+        description: The ISO8601-formatted start date of the search
+        schema:
+          type: string
+          format: date-time
+          example: '1996-12-06T00:00:01.000Z'
+      - name: end_date
+        in: query
+        required: true
+        description: The ISO8601-formatted end date of the search
+        schema:
+          type: string
+          format: date-time
+          example: '2019-08-22T00:00:01.000Z'
+      - name: limit
+        in: query
+        required: false
+        description: The maximum number of observation sets to return
+        schema:
+          type: integer
+          example: 20
+      - name: compact
+        in: query
+        required: false
+        description: Whether to return the observation sets in compact form (uuid
+          only)
+        schema:
+          type: boolean
+          default: false
+      requestBody:
+        description: List of location UUIDs
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: locations
+              type: array
+              items:
+                type: string
+                example: 2c4f1d24-2952-4d4e-b1d1-3637e33cc161
+      responses:
+        '200':
+          description: A list of observation sets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 400 Bad Request, 404 Not Found, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.search_observation_sets_by_locations_and_date_range
+      security:
+      - bearerAuth: []
+  /dhos/v2/patient/{patient_id}/observation_set:
+    get:
+      summary: Get observation sets by patient
+      description: 'Get a list of observations sets associated with a given patient
+        (specified by UUID). Note: this will only work for obs sets created with a
+        patient UUID, which doesn''t happen for SEND.'
+      tags:
+      - observation
+      parameters:
+      - name: patient_id
+        in: path
+        required: true
+        description: UUID of the patient
+        schema:
+          type: string
+          example: e22f5175-6283-408d-9ba4-ea3b3a5354b8
+      - name: limit
+        in: query
+        required: false
+        description: The maximum number of observation sets to return
+        schema:
+          type: integer
+          example: 20
+      responses:
+        '200':
+          description: A list of observation sets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 404 Not Found, 503 Service Unavailable
+      operationId: dhos_observations_api.blueprint_api.get_observation_sets_by_patient_id
+      security:
+      - bearerAuth: []
+  /dhos/v2/observation_set/count:
+    post:
+      summary: Retrieve count of observation sets
+      description: Return the number of observation sets associated with each of a
+        list of encounter UUIDS.
+      tags:
+      - observation
+      requestBody:
+        description: List of encounter UUIDs
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: encounters
+              type: array
+              items:
+                type: string
+                example: 8788b763-6437-4f61-ae1e-f1289ef9f5db
+      responses:
+        '200':
+          description: Observation set count
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+                  example: 5
+        default:
+          description: Error, e.g. 400 Bad Request, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.retrieve_observation_set_count
+      security:
+      - bearerAuth: []
+  /dhos/v2/observation_sets:
+    get:
+      summary: Get observation sets modified after
+      description: Get a list of observations sets which have been modified after
+        the specified date and time i.e modified_since=2020-12-30 will include an
+        observation from 2020-12-30 00:00:00.000001
+      tags:
+      - observation
+      parameters:
+      - name: modified_since
+        in: query
+        required: true
+        description: Earliest modified by date for observation sets to be returned
+        schema:
+          type: string
+          example: '2020-12-30'
+      - name: compact
+        in: query
+        required: false
+        description: Whether to return the observation sets in compact form
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: A list of observation sets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObservationSetResponse'
+        default:
+          description: Error, e.g. 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.get_observation_sets
+      security:
+      - bearerAuth: []
+  /dhos/v2/aggregate_obs:
+    post:
+      summary: Refresh agg_observation_sets MATERIALIZED VIEW
+      description: Refresh the data in the Aggregate observations set view
+      tags:
+      - observation
+      responses:
+        '200':
+          description: Data refresh time taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateUpdateResponse'
+        default:
+          description: Error, e.g. 400 Bad Request, 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.refresh_agg_observation_sets
+      security:
+      - bearerAuth: []
+  /dhos/v2/on_time_obs_stats:
+    post:
+      summary: Return observation sets on time statistics
+      description: Get aggregate data for the number and % of observation sets recorded
+        on time by location by risk
+      tags:
+      - observation
+      parameters:
+      - name: start_date
+        in: query
+        required: true
+        description: Earliest record time date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-12-01'
+      - name: end_date
+        in: query
+        required: true
+        description: Latest record time date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-01-01'
+      requestBody:
+        description: List of location UUIDs
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: location_uuids
+              type: array
+              items:
+                type: string
+                example: 8788b763-6437-4f61-ae1e-f1289ef9f5db
+      responses:
+        '200':
+          description: Aggregate observation on time statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/AggregateOnTimeObservationSets'
+        default:
+          description: Error, e.g. 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.on_time_observation_sets
+      security:
+      - bearerAuth: []
+  /dhos/v2/missing_obs_stats:
+    post:
+      summary: Return observation sets missing statistics
+      description: Get aggregate data for the number and % of observation sets which
+        have missing observations from observation sets by location
+      tags:
+      - observation
+      parameters:
+      - name: start_date
+        in: query
+        required: true
+        description: Earliest record time date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-12-01'
+      - name: end_date
+        in: query
+        required: true
+        description: Latest record time date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-01-01'
+      requestBody:
+        description: List of location UUIDs
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: location_uuids
+              type: array
+              items:
+                type: string
+                example: 8788b763-6437-4f61-ae1e-f1289ef9f5db
+      responses:
+        '200':
+          description: Aggregate observation missing statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/AggregateMissingObservationSets'
+        default:
+          description: Error, e.g. 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.missing_observation_sets
+      security:
+      - bearerAuth: []
+  /dhos/v2/on_time_intervals:
+    post:
+      summary: Return observation sets within late / early intervals
+      description: Get aggregate data for the number of observation sets grouped by
+        interval of time taken relative to the expected time taken by risk category
+      tags:
+      - observation
+      parameters:
+      - name: start_date
+        in: query
+        required: true
+        description: Earliest record time date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-12-01'
+      - name: end_date
+        in: query
+        required: true
+        description: Latest record time date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-01-01'
+      requestBody:
+        description: List of location UUIDs
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: location_uuids
+              type: array
+              items:
+                type: string
+                example: 8788b763-6437-4f61-ae1e-f1289ef9f5db
+      responses:
+        '200':
+          description: Aggregate observation by interval and risk
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/AggregateObservationsByInterval'
+        default:
+          description: Error, e.g. 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.observation_sets_time_intervals
+      security:
+      - bearerAuth: []
+  /dhos/v2/observation_sets_by_month:
+    post:
+      summary: Return observation set aggregate data by month
+      description: Get aggregate data for the number of observation sets grouped by
+        month
+      tags:
+      - observation
+      parameters:
+      - name: start_date
+        in: query
+        required: true
+        description: Earliest record_day date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-01-01'
+      - name: end_date
+        in: query
+        required: true
+        description: Latest record_day date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-07-01'
+      requestBody:
+        description: List of location UUIDs
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: location_uuids
+              type: array
+              items:
+                type: string
+                example: 8788b763-6437-4f61-ae1e-f1289ef9f5db
+      responses:
+        '200':
+          description: Aggregate observation by month
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/AggregateObservationSetsByMonth'
+        default:
+          description: Error, e.g. 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.agg_observation_sets_by_month
+      security:
+      - bearerAuth: []
+    get:
+      summary: Return observation set aggregate data by location and month
+      description: Get aggregate data for the number of observation sets grouped by
+        location and month
+      tags:
+      - observation
+      parameters:
+      - name: start_date
+        in: query
+        required: true
+        description: Earliest record_day date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-01-01'
+      - name: end_date
+        in: query
+        required: true
+        description: Latest record_day date for observation sets to be returned
+        schema:
+          type: string
+          format: date
+          example: '2020-07-01'
+      responses:
+        '200':
+          description: Aggregate observation by location and month
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/AggregateObservationSetsByLocationMonth'
+        default:
+          description: Error, e.g. 503 Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      operationId: dhos_observations_api.blueprint_api.all_agg_obs_by_location_by_month
+      security:
+      - bearerAuth: []
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: HTTP response code
+          example: 404
+        message:
+          type: string
+          description: Message attached to response
+          example: Not Found
+      required:
+      - code
+      description: An error response in json format
+    ObservationMetadataRequest:
+      type: object
+      properties:
+        mask:
+          type: string
+          nullable: true
+          example: Venturi
+        mask_percent:
+          type: integer
+          nullable: true
+          example: 75
+        gcs_eyes:
+          type: integer
+          nullable: true
+          example: 4
+        gcs_eyes_description:
+          type: string
+          nullable: true
+          example: Spontaneous
+        gcs_verbal:
+          type: integer
+          nullable: true
+          example: 2
+        gcs_verbal_description:
+          type: string
+          nullable: true
+          example: Oriented
+        gcs_motor:
+          type: integer
+          nullable: true
+          example: 5
+        gcs_motor_description:
+          type: string
+          nullable: true
+          example: Obeys Commands
+        patient_position:
+          type: string
+          nullable: true
+          example: Standing
+      title: Observation metadata request
+    ObservationRequest:
+      type: object
+      properties:
+        observation_type:
+          type: string
+          example: heart_rate
+        measured_time:
+          type: string
+          format: date-time
+          example: '2017-09-23T08:29:19.123+00:00'
+        patient_refused:
+          type: boolean
+          nullable: true
+          example: false
+        score_value:
+          type: integer
+          nullable: true
+          example: 4
+        observation_value:
+          type: number
+          nullable: true
+          example: 58
+        observation_string:
+          type: string
+          nullable: true
+          example: General concern
+        observation_unit:
+          type: string
+          nullable: true
+          example: bpm
+        observation_metadata:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ObservationMetadataRequest'
+      required:
+      - measured_time
+      - observation_type
+      title: Observation request
+    ObservationSetSchema:
+      type: object
+      properties:
+        score_system:
+          type: string
+          nullable: true
+          example: news2
+          enum: &id001
+          - news2
+          - meows
+        score_value:
+          type: integer
+          nullable: true
+          example: 12
+        score_string:
+          type: string
+          nullable: true
+          example: 12C
+        score_severity:
+          type: string
+          nullable: true
+          example: high
+        record_time:
+          type: string
+          format: date-time
+          example: '2017-09-23T08:31:19.123+00:00'
+        spo2_scale:
+          type: integer
+          nullable: true
+          example: 2
+        encounter_id:
+          type: string
+          nullable: true
+          example: e22f5175-6283-408d-9ba4-ea3b3a5354b8
+        patient_id:
+          type: string
+          nullable: true
+          example: f33e5175-2285-508d-0ba4-ea3b3a5354b9
+        is_partial:
+          type: boolean
+          nullable: true
+          example: false
+        empty_set:
+          type: boolean
+          nullable: true
+          example: false
+        ranking:
+          type: string
+          nullable: true
+          example: 0101010,2017-09-23T08:29:19.123+00:00
+        obx_reference_range:
+          type: string
+          nullable: true
+          example: 0-4
+        obx_abnormal_flags:
+          type: string
+          nullable: true
+          example: HIGH
+        time_next_obs_set_due:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2019-01-23T08:31:19.123+00:00'
+        monitoring_instruction:
+          type: string
+          nullable: true
+          example: medium_monitoring
+        location:
+          type: string
+          nullable: true
+          example: 285c1c51-5d72-4066-b1da-49604a3f21b0
+          description: UUID of location, (not used by v1 endpoint)
+        mins_late:
+          type: integer
+          nullable: true
+          example: 12
+      required:
+      - record_time
+      title: Observation set fields common to request and response
+    ObservationSetRequest:
+      type: object
+      properties:
+        score_system:
+          type: string
+          nullable: true
+          example: news2
+          enum: *id001
+        score_value:
+          type: integer
+          nullable: true
+          example: 12
+        score_string:
+          type: string
+          nullable: true
+          example: 12C
+        score_severity:
+          type: string
+          nullable: true
+          example: high
+        record_time:
+          type: string
+          format: date-time
+          example: '2017-09-23T08:31:19.123+00:00'
+        spo2_scale:
+          type: integer
+          nullable: true
+          example: 2
+        encounter_id:
+          type: string
+          nullable: true
+          example: e22f5175-6283-408d-9ba4-ea3b3a5354b8
+        patient_id:
+          type: string
+          nullable: true
+          example: f33e5175-2285-508d-0ba4-ea3b3a5354b9
+        is_partial:
+          type: boolean
+          nullable: true
+          example: false
+        empty_set:
+          type: boolean
+          nullable: true
+          example: false
+        ranking:
+          type: string
+          nullable: true
+          example: 0101010,2017-09-23T08:29:19.123+00:00
+        obx_reference_range:
+          type: string
+          nullable: true
+          example: 0-4
+        obx_abnormal_flags:
+          type: string
+          nullable: true
+          example: HIGH
+        time_next_obs_set_due:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2019-01-23T08:31:19.123+00:00'
+        monitoring_instruction:
+          type: string
+          nullable: true
+          example: medium_monitoring
+        location:
+          type: string
+          nullable: true
+          example: 285c1c51-5d72-4066-b1da-49604a3f21b0
+          description: UUID of location, (not used by v1 endpoint)
+        mins_late:
+          type: integer
+          nullable: true
+          example: 12
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObservationRequest'
+      required:
+      - observations
+      - record_time
+      title: Observation set request
+    ObservationResponse:
+      type: object
+      properties:
+        observation_type:
+          type: string
+          example: heart_rate
+        measured_time:
+          type: string
+          format: date-time
+          example: '2017-09-23T08:29:19.123+00:00'
+        patient_refused:
+          type: boolean
+          nullable: true
+          example: false
+        score_value:
+          type: integer
+          nullable: true
+          example: 4
+        observation_value:
+          type: number
+          nullable: true
+          example: 58
+        observation_string:
+          type: string
+          nullable: true
+          example: General concern
+        observation_unit:
+          type: string
+          nullable: true
+          example: bpm
+        observation_metadata:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ObservationMetadataRequest'
+        uuid:
+          type: string
+          description: Universally unique identifier for object
+          example: 2c4f1d24-2952-4d4e-b1d1-3637e33cc161
+      required:
+      - measured_time
+      - observation_type
+      - uuid
+      title: Observation response
+    ObservationSetResponse:
+      type: object
+      properties:
+        uuid:
+          type: string
+          description: Universally unique identifier for object
+          example: 2c4f1d24-2952-4d4e-b1d1-3637e33cc161
+        created:
+          type: string
+          format: date-time
+          description: When the object was created
+          example: '2017-09-23T08:29:19.123+00:00'
+        created_by:
+          type: string
+          nullable: true
+          description: UUID of the user that created the object
+          example: d26570d8-a2c9-4906-9c6a-ea1a98b8b80f
+        modified:
+          type: string
+          format: date-time
+          description: When the object was modified
+          example: '2017-09-23T08:29:19.123+00:00'
+        modified_by:
+          type: string
+          nullable: true
+          description: UUID of the user that modified the object
+          example: 2a0e26e5-21b6-463a-92e8-06d7290067d0
+        score_system:
+          type: string
+          nullable: true
+          example: news2
+          enum: *id001
+        score_value:
+          type: integer
+          nullable: true
+          example: 12
+        score_string:
+          type: string
+          nullable: true
+          example: 12C
+        score_severity:
+          type: string
+          nullable: true
+          example: high
+        record_time:
+          type: string
+          format: date-time
+          example: '2017-09-23T08:31:19.123+00:00'
+        spo2_scale:
+          type: integer
+          nullable: true
+          example: 2
+        encounter_id:
+          type: string
+          nullable: true
+          example: e22f5175-6283-408d-9ba4-ea3b3a5354b8
+        patient_id:
+          type: string
+          nullable: true
+          example: f33e5175-2285-508d-0ba4-ea3b3a5354b9
+        is_partial:
+          type: boolean
+          nullable: true
+          example: false
+        empty_set:
+          type: boolean
+          nullable: true
+          example: false
+        ranking:
+          type: string
+          nullable: true
+          example: 0101010,2017-09-23T08:29:19.123+00:00
+        obx_reference_range:
+          type: string
+          nullable: true
+          example: 0-4
+        obx_abnormal_flags:
+          type: string
+          nullable: true
+          example: HIGH
+        time_next_obs_set_due:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2019-01-23T08:31:19.123+00:00'
+        monitoring_instruction:
+          type: string
+          nullable: true
+          example: medium_monitoring
+        location:
+          type: string
+          nullable: true
+          example: 285c1c51-5d72-4066-b1da-49604a3f21b0
+          description: UUID of location, (not used by v1 endpoint)
+        mins_late:
+          type: integer
+          nullable: true
+          example: 12
+        spo2_scale_has_changed:
+          type: boolean
+          example: false
+          description: (v1 only) True if spo2_scale passed in POST does not match
+            expected from encounter
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObservationResponse'
+      required:
+      - created
+      - created_by
+      - modified
+      - observations
+      - record_time
+      - uuid
+      title: Observation set response
+    ObservationUpdate:
+      type: object
+      properties:
+        observation_type:
+          type: string
+          example: heart_rate
+        score_value:
+          type: integer
+          example: 4
+      required:
+      - observation_type
+      - score_value
+    ObservationSetUpdate:
+      type: object
+      properties:
+        score_value:
+          type: integer
+          example: 12
+        score_string:
+          type: string
+          nullable: true
+          example: 12C
+        score_severity:
+          type: string
+          nullable: true
+          example: high
+        spo2_scale:
+          type: integer
+          nullable: true
+          example: 2
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObservationUpdate'
+        is_partial:
+          type: boolean
+          example: false
+        empty_set:
+          type: boolean
+          example: false
+        ranking:
+          type: string
+          example: 0101010,2017-09-23T08:29:19.123+00:00
+        obx_reference_range:
+          type: string
+          nullable: true
+          example: 0-4
+        obx_abnormal_flags:
+          type: string
+          nullable: true
+          example: HIGH
+        time_next_obs_set_due:
+          type: string
+          format: date-time
+          example: '2019-01-23T08:31:19.123+00:00'
+        monitoring_instruction:
+          type: string
+          example: medium_monitoring
+      required:
+      - observations
+      - score_value
+      title: Observation set update
+    AggregateUpdateResponse:
+      type: object
+      properties:
+        time_taken:
+          type: string
+          example: 20.123 seconds
+      required:
+      - time_taken
+      title: Observation aggregate data update
+    AggregateOnTimeStats:
+      type: object
+      properties:
+        on_time:
+          type: integer
+          example: 9900
+          description: Number of observation sets which were taken on time
+        late:
+          type: integer
+          example: 100
+          description: Number of observation sets which were taken late
+      title: Aggregate On Time Observation Sets
+    AggregateOnTimeStatsWithRisk:
+      type: object
+      properties:
+        on_time:
+          type: integer
+          example: 9900
+          description: Number of observation sets which were taken on time
+        late:
+          type: integer
+          example: 100
+          description: Number of observation sets which were taken late
+        risk:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AggregateOnTimeStats'
+      title: Aggregate On Time Observation Sets and by risk
+    AggregateOnTimeStatsWithRiskAndDate:
+      type: object
+      properties:
+        on_time:
+          type: integer
+          example: 9900
+          description: Number of observation sets which were taken on time
+        late:
+          type: integer
+          example: 100
+          description: Number of observation sets which were taken late
+        risk:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AggregateOnTimeStats'
+        date:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AggregateOnTimeStatsWithRisk'
+      title: Date based aggregate on time observation sets data
+    AggregateOnTimeObservationSets:
+      type: object
+      properties:
+        on_time:
+          type: integer
+          example: 9900
+          description: Number of observation sets which were taken on time
+        late:
+          type: integer
+          example: 100
+          description: Number of observation sets which were taken late
+      title: Location based aggregate on time observation data
+    AggregateMissingStats:
+      type: object
+      properties:
+        total_obs_sets:
+          type: integer
+          example: 10000
+          description: Number of observation sets taken
+        num_obs_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing observations
+        o2_therapy_status_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing o2_therapy_status
+        heart_rate_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing heart_rate
+        spo2_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing spo2
+        temperature_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing temperature
+        diastolic_blood_pressure_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing diastolic_blood_pressure
+        respiratory_rate_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing respiratory_rate
+        consciousness_acvpu_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing consciousness_acvpu
+        systolic_blood_pressure_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing systolic_blood_pressure
+      title: Aggregate missing observation sets
+    AggregateMissingObservationSets:
+      type: object
+      properties:
+        total_obs_sets:
+          type: integer
+          example: 10000
+          description: Number of observation sets taken
+        num_obs_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing observations
+        o2_therapy_status_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing o2_therapy_status
+        heart_rate_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing heart_rate
+        spo2_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing spo2
+        temperature_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing temperature
+        diastolic_blood_pressure_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing diastolic_blood_pressure
+        respiratory_rate_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing respiratory_rate
+        consciousness_acvpu_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing consciousness_acvpu
+        systolic_blood_pressure_missing:
+          type: integer
+          example: 10000
+          description: Number of observation sets missing systolic_blood_pressure
+      title: Location based aggregate on time observation data
+    AggregateTimeInterval:
+      type: object
+      properties:
+        minus60:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 60 minutes
+            and over
+        minus45_59:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 45-59
+            minutes
+        minus30_44:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 30-44
+            minutes
+        minus15_29:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 15-29
+            minutes
+        minus0_14:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early/on time by
+            0-14 minutes
+        plus1_15:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 1-15 minutes
+        plus16_30:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 16-30 minutes
+        plus31_45:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 31-45 minutes
+        plus46_60:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 46-60 minutes
+        plus61_75:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 61-75 minutes
+        plus76_90:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 76-90 minutes
+        plus91_105:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 91-105
+            minutes
+        plus106_120:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 106-120
+            minutes
+        plus121_135:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 121-135
+            minutes
+        plus136_150:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 136-150
+            minutes
+        plus151_165:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 151-165
+            minutes
+        plus166_180:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 166-180
+            minutes
+        plus180:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 180 minutes
+            and over
+      title: Number of observation sets grouped by risk level and 15 minute intervals
+    AggregateObservationsByInterval:
+      type: object
+      properties:
+        minus60:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 60 minutes
+            and over
+        minus45_59:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 45-59
+            minutes
+        minus30_44:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 30-44
+            minutes
+        minus15_29:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early by 15-29
+            minutes
+        minus0_14:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken early/on time by
+            0-14 minutes
+        plus1_15:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 1-15 minutes
+        plus16_30:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 16-30 minutes
+        plus31_45:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 31-45 minutes
+        plus46_60:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 46-60 minutes
+        plus61_75:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 61-75 minutes
+        plus76_90:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 76-90 minutes
+        plus91_105:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 91-105
+            minutes
+        plus106_120:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 106-120
+            minutes
+        plus121_135:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 121-135
+            minutes
+        plus136_150:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 136-150
+            minutes
+        plus151_165:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 151-165
+            minutes
+        plus166_180:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 166-180
+            minutes
+        plus180:
+          type: integer
+          example: 1324
+          description: Number of observation sets which were taken late by 180 minutes
+            and over
+      title: Location based aggregate on time observation data
+    AggregateMonthlyObs:
+      type: object
+      properties:
+        all_obs_sets:
+          type: integer
+          example: 1324
+          description: All observations sets taken during the month
+        on_time:
+          type: integer
+          example: 1324
+          description: All on time observations sets taken during the month
+        low:
+          type: integer
+          example: 1324
+          description: Low severity observations sets taken during the month
+        low_medium:
+          type: integer
+          example: 1324
+          description: Low medium severity observations sets taken during the month
+        medium:
+          type: integer
+          example: 1324
+          description: Medium severity observations sets taken during the month
+        high:
+          type: integer
+          example: 1324
+          description: High severity observations sets taken during the month
+        missing_obs:
+          type: integer
+          example: 1324
+          description: Observations sets with missing observations taken during the
+            month
+        o2_therapy_status:
+          type: integer
+          example: 1324
+          description: Observations sets missing o2 therapy status observations taken
+            during the month
+        heart_rate:
+          type: integer
+          example: 1324
+          description: Observations sets missing heart rate observations taken during
+            the month
+        spo2:
+          type: integer
+          example: 1324
+          description: Observations sets missing spo2 observations taken during the
+            month
+        temperature:
+          type: integer
+          example: 1324
+          description: Observations sets missing temperature observations taken during
+            the month
+        diastolic_blood_pressure:
+          type: integer
+          example: 1324
+          description: Observations sets missing diastolic blood pressure observations
+            taken during the month
+        respiratory_rate:
+          type: integer
+          example: 1324
+          description: Observations sets missing respiratory rate observations taken
+            during the month
+        consciousness_acvpu:
+          type: integer
+          example: 1324
+          description: Observations sets missing ACVPU observations taken during the
+            month
+        systolic_blood_pressure:
+          type: integer
+          example: 1324
+          description: Observations sets missing systolic blood pressure observations
+            taken during the month
+        nurse_concern:
+          type: integer
+          example: 1324
+          description: Observations sets missing nurse concern observations taken
+            during the month
+      title: Number of observation sets grouped by month
+    AggregateObservationSetsByMonth:
+      type: object
+      properties: {}
+      title: Monthly aggregate observation data
+    AggregateObservationSetsByLocationMonth:
+      type: object
+      properties: {}
+      title: Monthly aggregate observation data
+  responses:
+    BadRequest:
+      description: Bad or malformed request was received
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The specified resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailable:
+      description: Service or dependent resource not available
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

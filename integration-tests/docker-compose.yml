@@ -1,0 +1,116 @@
+x-environment:
+  &COMMON_ENVIRONMENT
+  ENVIRONMENT: DEVELOPMENT
+  PROXY_URL: http://localhost
+  HS_ISSUER: http://localhost/
+  HS_KEY: secret
+  AUTH0_MGMT_CLIENT_ID: "doesnotmatter"
+  AUTH0_MGMT_CLIENT_SECRET: "shhh"
+  AUTH0_AUTHZ_CLIENT_ID: "doesnotmatter"
+  AUTH0_AUTHZ_CLIENT_SECRET: "shhh"
+  AUTH0_AUTHZ_WEBTASK_URL: "doesnotmatter"
+  AUTH0_CLIENT_ID: "doesnotmatter"
+  AUTH0_AUDIENCE: "http://localhost/"
+  NONCUSTOM_AUTH0_DOMAIN: "https://integration-tests"
+  AUTH0_CUSTOM_DOMAIN: "dev"
+  DISABLE_CREATE_USER_IN_AUTH0: "True"
+  AUTH0_HS_KEY: "secret"
+  NEO4J_DB_URL: obs-int-neo4j
+  NEO4J_DB_PORT: 7687
+  DATABASE_HOST: postgres-db
+  DATABASE_PORT: 5432
+  DATABASE_USER: postgres-user
+  DATABASE_PASSWORD: postgres-password
+  FLASK_APP: dhos_observations_api/autoapp.py
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_USERNAME: guest
+  RABBITMQ_PASSWORD: guest
+  RABBITMQ_NOENCRYPT: "true"
+  REDIS_HOST: localhost
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: any
+  SMTP_HOST: dummy
+  SMTP_AUTH_PASS: dummy
+  SMTP_AUTH_USER: dummy
+  EMAIL_SENDER: dummy
+  TOKEN_URL: "https://integration-tests/oauth/token"
+  CUSTOMER_CODE: DEV
+  LOG_LEVEL: DEBUG
+  LOG_FORMAT: COLOUR
+
+services:
+  dhos-observations-integration-tests:
+    container_name: "dhos-observations-integration-tests"
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      args:
+        - PIP_EXTRA_INDEX_URL
+    environment:
+      <<: *COMMON_ENVIRONMENT
+      BEHAVE_ARGS: ${BEHAVE_ARGS:-}
+      REPORT_PORTAL_URL: ${REPORT_PORTAL_URL:-}
+      REPORT_PORTAL_TOKEN: ${REPORT_PORTAL_TOKEN:-}
+      REPORT_PORTAL_PROJECT: ${REPORT_PORTAL_PROJECT:-}
+      ENVIRONMENT: ${ENVIRONMENT:-}
+      RELEASE: ${RELEASE:-}
+      SYSTEM_JWT_SCOPE: >-
+        read:observation read:send_observation
+        write:observation write:send_observation
+        read:send_location write:send_location 
+        read:send_patient write:send_patient 
+        read:send_encounter write:send_encounter
+        write:location
+    command: >
+      bash -c "behave --no-capture --no-logcapture ${BEHAVE_ARGS:-}"
+    depends_on:
+      "dhos-observations-api":
+        condition: service_healthy
+
+  dhos-observations-api:
+    container_name: "dhos-observations-api"
+    build:
+      context: ..
+      args:
+        - GEMFURY_DOWNLOAD_KEY
+    environment:
+      <<: *COMMON_ENVIRONMENT
+      DATABASE_NAME: dhos-observations-api-db
+    command: bash -c "flask db upgrade && python -m dhos_observations_api"
+    healthcheck:
+      test: curl -f http://localhost:5000/running || false
+      interval: 3s
+      retries: 40
+      start_period: 10s
+    depends_on:
+      "postgres-db":
+        condition: service_healthy
+      "rabbitmq":
+        condition: service_healthy
+
+  postgres-db:
+    container_name: "postgres-db"
+    build:
+      context: ./postgres-db
+    environment:
+      - POSTGRES_USER=postgres-user
+      - POSTGRES_PASSWORD=postgres-password
+      - POSTGRES_MULTIPLE_DATABASES="dhos-observations-api-db"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    container_name: "rabbitmq"
+    image: docker.io/rabbitmq:3.8-management-alpine
+    healthcheck:
+      test: rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    ports:
+      - "5672:5672"
+      - "15672:15672"

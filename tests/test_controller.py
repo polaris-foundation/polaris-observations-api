@@ -1,5 +1,7 @@
-from datetime import datetime
-from typing import Dict
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Callable, Dict
 from unittest.mock import Mock
 
 import pytest
@@ -68,36 +70,63 @@ class TestController:
         assert mock_publish.call_count == (1 if suppress_obs_publish else 3)
 
     def test_retrieve_observation_count_for_encounter_ids(
-        self,
+        self, statement_counter: Callable
     ) -> None:
         encounter_1 = generate_uuid()
         for i in range(5):
-            obs_set = ObservationSet.new(
+            ObservationSet.new(
                 encounter_id=encounter_1,
                 score_system="news2",
                 record_time=datetime.now(),
+                observations=[
+                    {
+                        "observation_type": "o2_therapy_status",
+                        "patient_refused": False,
+                        "observation_unit": "L/min",
+                        "measured_time": datetime.now(),
+                        "observation_value": 22,
+                        "observation_metadata": {
+                            "mask": "High Flow",
+                            "mask_percent": 35,
+                        },
+                    }
+                ],
             )
 
         encounter_2 = generate_uuid()
         for i in range(3):
-            obs_set = ObservationSet.new(
+            ObservationSet.new(
                 encounter_id=encounter_2,
                 score_system="news2",
                 record_time=datetime.now(),
+                observations=[
+                    {
+                        "observation_type": "o2_therapy_status",
+                        "patient_refused": False,
+                        "observation_unit": "L/min",
+                        "measured_time": datetime.now(),
+                        "observation_value": 22,
+                        "observation_metadata": {
+                            "mask": "High Flow",
+                            "mask_percent": 35,
+                        },
+                    }
+                ],
             )
 
         db.session.commit()
         encounter_3 = generate_uuid()
-        result = controller.retrieve_observation_count_for_encounter_ids(
-            [encounter_1, encounter_2, encounter_3]
-        )
+        with statement_counter(limit=1):
+            result = controller.retrieve_observation_count_for_encounter_ids(
+                [encounter_1, encounter_2, encounter_3]
+            )
         assert result == {encounter_1: 5, encounter_2: 3, encounter_3: 0}
 
     def test_refresh_agg_observation_sets(
         self,
         mocker: MockFixture,
     ) -> None:
-        mocked_db_engine_execute = mocker.patch(
+        mocker.patch(
             "dhos_observations_api.blueprint_api.controller.db.engine.execute",
         )
         result = controller.refresh_agg_observation_sets()
@@ -527,3 +556,65 @@ class TestController:
         )
         obs2 = controller.create_observation_set(obs_set, suppress_obs_publish=False)
         assert obs2["mins_late"] == 80
+
+    def test_get_latest_observation_sets_by_encounter_ids_performance(
+        self, mocker: MockFixture, statement_counter: Callable
+    ) -> None:
+        encounter_uuids = []
+        mocker.patch(
+            "dhos_observations_api.blueprint_api.message.publish_scored_obs_message",
+            return_value=None,
+        )
+        for i in range(100):
+            encounter_uuid = str(uuid.uuid4())
+            encounter_uuids.append(encounter_uuid)
+            record_time = datetime(
+                2019, 1, 1, 11, 59, 20, tzinfo=timezone.utc
+            ) + timedelta(seconds=i)
+            for j in range(10):
+                record_time = datetime(
+                    2019, 1, 1, 11, 59, 20, tzinfo=timezone.utc
+                ) + timedelta(seconds=j)
+                obs_set: ObservationSetRequest.Meta.Dict = {
+                    "score_system": "news2",
+                    "record_time": record_time,
+                    "spo2_scale": 1,
+                    "observations": [
+                        {
+                            "observation_type": "temperature",
+                            "patient_refused": False,
+                            "observation_unit": "celsius",
+                            "measured_time": record_time,
+                            "observation_value": 35,
+                        },
+                        {
+                            "observation_type": "o2_therapy_status",
+                            "patient_refused": False,
+                            "observation_unit": "L/min",
+                            "measured_time": record_time,
+                            "observation_value": 22,
+                            "observation_metadata": {
+                                "mask": "High Flow",
+                                "mask_percent": 35,
+                            },
+                        },
+                    ],
+                    "encounter_id": encounter_uuid,
+                    "is_partial": True,
+                    "patient_id": "patient_uuid",
+                    "score_severity": "low-medium",
+                    "score_string": "3",
+                    "time_next_obs_set_due": record_time,
+                }
+
+            controller.create_observation_set(obs_set, suppress_obs_publish=False)
+
+        with statement_counter(limit=1):
+            time_start = time.perf_counter()
+            results = controller.get_latest_observation_sets_by_encounter_ids(
+                encounter_ids=encounter_uuids
+            )
+            time_taken = time.perf_counter() - time_start
+        print(f"get_latest_observation_sets_by_encounter_ids:{time_taken}")
+        assert len(results) == 100
+        assert time_taken < 0.1

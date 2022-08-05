@@ -12,8 +12,8 @@ from flask_batteries_included.helpers.error_handler import (
 from flask_batteries_included.helpers.security.jwt import current_jwt_user
 from flask_batteries_included.sqldb import db
 from she_logging import logger
-from sqlalchemy import Integer, and_, bindparam, func
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy import Integer, and_, func
+from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.query import Query
 from sqlalchemy.sql import select, text
 
@@ -144,7 +144,7 @@ def update_mins_late_for_encounter(encounter_id: str) -> None:
 def update_observation_set(observation_set_uuid: str, updated_obs_set: Dict) -> Dict:
     with db.session.begin(subtransactions=True):
         observation_set = (
-            ObservationSet.query.options(selectinload(ObservationSet.observations))
+            ObservationSet.query.options(joinedload(ObservationSet.observations))
             .filter(ObservationSet.uuid == observation_set_uuid)
             .first()
         )
@@ -196,7 +196,7 @@ def get_observation_set_by_id(
     observation_set_uuid: str, compact: bool = False
 ) -> ObservationSetResponse.Meta.Dict:
     observation_set: ObservationSet = (
-        ObservationSet.query.options(selectinload(ObservationSet.observations))
+        ObservationSet.query.options(joinedload(ObservationSet.observations))
         .filter(ObservationSet.uuid == observation_set_uuid)
         .first()
     )
@@ -240,9 +240,25 @@ def get_observation_sets_by_locations_and_date_range(
         )
         raise UnprocessibleEntityException("End date is before Start date")
 
-    # This query returns all the observation sets taken at a specified location, between a given date range
-    query: Query = (
+    # When compact it will just return their uuids
+    if compact:
+        query = (
+            db.session.query(ObservationSet)
+            .filter(
+                and_(
+                    ObservationSet.location.in_(location_uuids),
+                    start_date < ObservationSet.record_time,
+                    ObservationSet.record_time <= end_date,
+                )
+            )
+            .order_by(ObservationSet.record_time.desc())
+            .limit(limit)
+        )
+        return [{"uuid": o.uuid} for o in query]
+
+    query = (
         db.session.query(ObservationSet)
+        .options(joinedload(ObservationSet.observations))
         .filter(
             and_(
                 ObservationSet.location.in_(location_uuids),
@@ -254,13 +270,6 @@ def get_observation_sets_by_locations_and_date_range(
         .limit(limit)
     )
 
-    # When compact it will just return their uuids
-    if compact:
-        query = query.with_entities(ObservationSet.uuid)
-        return [{"uuid": o.uuid} for o in query]
-
-    query.options(selectinload(ObservationSet.observations))
-
     return [obs_set.to_dict(compact=True) for obs_set in query]
 
 
@@ -270,7 +279,7 @@ def query_observation_sets_for_encounters(
     query: Query = (
         db.session.query(ObservationSet)
         .filter(ObservationSet.encounter_id.in_(encounter_ids))
-        .options(selectinload(ObservationSet.observations))
+        .options(joinedload(ObservationSet.observations))
         .order_by(ObservationSet.record_time.desc())
         .limit(limit)
     )
@@ -307,19 +316,30 @@ def get_latest_observation_sets_by_encounter_ids(
     encounter_ids: List[str], compact: bool = False
 ) -> Dict[str, Dict]:
 
-    query = (
-        ObservationSet.query.distinct(ObservationSet.encounter_id)
-        .filter(
-            ObservationSet.encounter_id.in_(bindparam("encounter_ids", expanding=True))
+    subq = (
+        db.session.query(
+            ObservationSet.encounter_id,
+            func.max(ObservationSet.record_time).label("maxdate"),
         )
-        .options(selectinload(ObservationSet.observations))
-        .order_by(ObservationSet.encounter_id, ObservationSet.record_time.desc())
+        .group_by(ObservationSet.encounter_id)
+        .filter(ObservationSet.encounter_id.in_(encounter_ids))
+        .subquery("t2")
     )
 
-    return {
-        obs_set.encounter_id: obs_set.to_dict(compact=compact)
-        for obs_set in query.params(encounter_ids=encounter_ids)
-    }
+    query = (
+        db.session.query(ObservationSet)
+        .options(joinedload(ObservationSet.observations))
+        .join(
+            subq,
+            and_(
+                ObservationSet.encounter_id == subq.c.encounter_id,
+                ObservationSet.record_time == subq.c.maxdate,
+            ),
+        )
+        .filter(ObservationSet.encounter_id.in_(encounter_ids))
+    )
+
+    return {obs_set.encounter_id: obs_set.to_dict(compact=compact) for obs_set in query}
 
 
 def get_observation_sets_for_patient(

@@ -2,7 +2,7 @@ import itertools
 import uuid
 from datetime import datetime, timedelta, timezone
 from random import randint
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 import pytest
 from flask import jsonify
@@ -89,6 +89,16 @@ class TestObservationSet:
                 spo2_scale=1,
                 encounter_id=encounter_uuid,
             )
+
+        record_time = datetime(2020, 1, 1, 11, 59, 20, tzinfo=timezone.utc)
+
+        ObservationSet.new(
+            observations=[],
+            record_time=record_time,
+            score_system="news2",
+            spo2_scale=1,
+            encounter_id="different_encounter",
+        )
         db.session.commit()
 
         obs_set = get_latest_observation_set_for_encounters([encounter_uuid])
@@ -171,14 +181,26 @@ class TestObservationSet:
         ],
     )
     def test_returns_observation_sets_at_a_location(
-        self, start_date: str, end_date: str
+        self, start_date: str, end_date: str, statement_counter: Callable
     ) -> None:
         location_uuid: str = generate_uuid()
         encounter_uuid: str = generate_uuid()
         for i in range(5):
             record_time = datetime(2019, 1, i + 1, 11, 59, 20 + i, tzinfo=timezone.utc)
             ObservationSet.new(
-                observations=[],
+                observations=[
+                    {
+                        "observation_type": "o2_therapy_status",
+                        "patient_refused": False,
+                        "observation_unit": "L/min",
+                        "measured_time": record_time,
+                        "observation_value": 22,
+                        "observation_metadata": {
+                            "mask": "High Flow",
+                            "mask_percent": 35,
+                        },
+                    },
+                ],
                 record_time=record_time,
                 score_system="news2",
                 spo2_scale=1,
@@ -186,11 +208,12 @@ class TestObservationSet:
                 location=location_uuid,
             )
 
-        response = get_observation_sets_by_locations_and_date_range(
-            location_uuids=[location_uuid],
-            start_date_str=start_date,
-            end_date_str=end_date,
-        )
+        with statement_counter(limit=1):
+            response = get_observation_sets_by_locations_and_date_range(
+                location_uuids=[location_uuid],
+                start_date_str=start_date,
+                end_date_str=end_date,
+            )
         obs = jsonify(response).json
         assert obs
         obs_sets: List[Dict[str, Any]] = ObservationSetResponse().load(obs, many=True)

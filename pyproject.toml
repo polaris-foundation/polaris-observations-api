@@ -43,7 +43,7 @@ types-waitress = "*"
 
 [tool.mypy]
 namespace_packages=true
-ignore_missing_imports=false
+ignore_missing_imports=true
 disallow_untyped_defs=true
 
 [[tool.mypy.overrides]]

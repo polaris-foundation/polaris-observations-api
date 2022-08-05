@@ -1,19 +1,32 @@
+import contextlib
 import os
 import signal
 import socket
 import sys
 import time
-from typing import Any, Dict, Generator, NoReturn, Tuple
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    Generator,
+    Iterator,
+    NoReturn,
+    Optional,
+    Tuple,
+)
 from unittest.mock import Mock
 from urllib.parse import urlparse
 
 import kombu_batteries_included
 import pytest
+import sqlalchemy
 from flask import Flask, g
 from flask_batteries_included.config import RealSqlDbConfig
 from flask_batteries_included.helpers import generate_uuid
 from flask_batteries_included.sqldb import db
 from pytest_mock import MockFixture
+from sqlalchemy.orm import Session
 
 from dhos_observations_api.models.sql.agg_observation_sets import AggObservationSets
 
@@ -508,3 +521,55 @@ def agg_observation_sets_by_location_month() -> dict:
             },
         }
     }
+
+
+class DBStatementCounter(object):
+    def __init__(self, limit: int = None) -> None:
+        self.clauses: list[sqlalchemy.sql.ClauseElement] = []
+        self.limit = limit
+
+    @property
+    def count(self) -> int:
+        return len(self.clauses)
+
+    def callback(
+        self,
+        conn: sqlalchemy.engine.Connection,
+        clauseelement: sqlalchemy.sql.ClauseElement,
+        multiparams: list[dict],
+        params: dict,
+        execution_options: dict,
+    ) -> None:
+        if isinstance(clauseelement, sqlalchemy.sql.elements.SavepointClause):
+            return
+
+        self.clauses.append(clauseelement)
+        if self.limit:
+            if len(self.clauses) > self.limit:
+                clauses = [str(clause) for clause in self.clauses]
+                print(clauses)
+            assert (
+                len(self.clauses) <= self.limit
+            ), f"Too many SQL statements (limit was {self.limit})"
+
+
+@contextlib.contextmanager
+def db_statement_counter(
+    limit: int = None, session: Session = None
+) -> Iterator[DBStatementCounter]:
+    if session is None:
+        session = db.session
+    counter = DBStatementCounter(limit=limit)
+    cb = counter.callback
+    sqlalchemy.event.listen(db.engine, "before_execute", cb)
+    try:
+        yield counter
+    finally:
+        sqlalchemy.event.remove(db.engine, "before_execute", cb)
+
+
+@pytest.fixture
+def statement_counter() -> Callable[
+    [Optional[int], Optional[Session]], ContextManager[DBStatementCounter]
+]:
+    return db_statement_counter

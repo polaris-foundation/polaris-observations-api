@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, Generator
+from typing import Any, Callable, Dict, Generator
 
 import pytest
 from flask import jsonify
@@ -33,7 +33,9 @@ class TestGetObservationSet:
             controller.get_observation_set_by_id(observation_set_uuid="fake-uuid")
 
     @pytest.mark.parametrize("compact", [True, False])
-    def test_get_obs_set_success(self, encounter_uuid: str, compact: bool) -> None:
+    def test_get_obs_set_success(
+        self, encounter_uuid: str, compact: bool, statement_counter: Callable
+    ) -> None:
         record_time = datetime.now().replace(tzinfo=timezone.utc)
         obs_set = ObservationSet.new(
             encounter_id=encounter_uuid,
@@ -47,9 +49,10 @@ class TestGetObservationSet:
             ],
         )
 
-        response = jsonify(
-            controller.get_observation_set_by_id(obs_set["uuid"], compact=compact)
-        )
+        with statement_counter(limit=1):
+            response = jsonify(
+                controller.get_observation_set_by_id(obs_set["uuid"], compact=compact)
+            )
         assert response.json
         returned_obs_set: Dict[str, Any] = ObservationSetResponse().load(response.json)
 

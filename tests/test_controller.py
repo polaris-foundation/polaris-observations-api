@@ -617,4 +617,4 @@ class TestController:
             time_taken = time.perf_counter() - time_start
         print(f"get_latest_observation_sets_by_encounter_ids:{time_taken}")
         assert len(results) == 100
-        assert time_taken < 0.1
+        assert time_taken < 0.5

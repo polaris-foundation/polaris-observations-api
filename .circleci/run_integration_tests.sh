@@ -3,10 +3,8 @@
 set -eux
 
 # The Dockerfiles require these
-for SERVICE_FOLDER in ${SERVICE_FOLDERS}; do
-    touch ${SERVICE_FOLDER}/build-circleci.txt
-    touch ${SERVICE_FOLDER}/build-githash.txt
-done
+touch build-circleci.txt
+touch build-githash.txt
 
 TEST_CONTAINER_NAME=$(git remote -v | head -1 | cut -d/ -f2 | sed 's/-api.*/-integration-tests/')
 

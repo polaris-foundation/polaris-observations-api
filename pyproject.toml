@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Polaris Observations API"
 authors = ["Adam Romano <adam.romano@sensynehealth.com>"]
 keywords = ["Swagger", "Observations"]
-repository = "https://github.com/polaris-foundation/dhos-observations-api"
+repository = "https://github.com/polaris-foundation/polaris-observations-api"
 
 [tool.poetry.dependencies]
 python = "^3.9"

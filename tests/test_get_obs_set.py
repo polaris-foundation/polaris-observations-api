@@ -113,10 +113,8 @@ class TestGetObservationSet:
 
         assert len(response) == 2
         assert response[0]["uuid"] == obs_set_newer["uuid"]
-        assert response[0]["created_by"] == clinician
         assert response[0]["created_by"] == obs_set_newer["created_by"]
         assert response[0]["created"] == obs_set_newer["created"]
-        assert response[0]["modified_by"] == clinician
         assert response[0]["modified_by"] == obs_set_newer["modified_by"]
         assert response[0]["modified"] == obs_set_newer["modified"]
         assert response[0]["spo2_scale"] == obs_set_newer["spo2_scale"]

@@ -1,14 +1,10 @@
 [tool.poetry]
 name = "dhos-observations-api"
 version = "0.0.1"
-description = "DHOS Observations API"
+description = "Polaris Observations API"
 authors = ["Adam Romano <adam.romano@sensynehealth.com>"]
 keywords = ["Swagger", "Observations"]
-repository = "https://github.com/draysontechnologies/dhos-observations-api"
-
-[[tool.poetry.source]]
-name = "sensynehealth"
-url = "https://pypi.fury.io/sensynehealth/"
+repository = "https://github.com/polaris-foundation/dhos-observations-api"
 
 [tool.poetry.dependencies]
 python = "^3.9"

@@ -51,6 +51,9 @@ jobs:
       - setup_remote_docker:
           version: 20.10.7
       - run:
+          name: Add build information
+          command: .circleci/record_build_info.sh
+      - run:
           name: Build docker image
           command: docker build . -t polaris-observations-api
       - run:
